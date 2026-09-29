@@ -89,7 +89,14 @@ fun ClientCard(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    if (!client.businessName.isNullOrBlank()) {
+                    val businessSubtitle = buildString {
+                        if (!client.businessName.isNullOrBlank()) append(client.businessName)
+                        if (!client.businessType.isNullOrBlank()) {
+                            if (isNotEmpty()) append(" • ")
+                            append(client.businessType)
+                        }
+                    }
+                    if (businessSubtitle.isNotBlank()) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(top = 2.dp)
@@ -102,7 +109,7 @@ fun ClientCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = client.businessName,
+                                text = businessSubtitle,
                                 color = TextSecondary,
                                 fontSize = 13.sp,
                                 maxLines = 1,

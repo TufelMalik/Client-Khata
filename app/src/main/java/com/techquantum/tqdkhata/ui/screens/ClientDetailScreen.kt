@@ -17,10 +17,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.graphics.Bitmap
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,6 +39,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -76,9 +87,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.core.content.ContextCompat
 import com.techquantum.tqdkhata.data.model.ClientEntity
+import com.techquantum.tqdkhata.data.model.ClientResourceEntity
 import com.techquantum.tqdkhata.data.model.ProjectStatus
 import com.techquantum.tqdkhata.data.model.ReminderEntity
+import com.techquantum.tqdkhata.data.model.ResourceType
 import com.techquantum.tqdkhata.ui.components.PriorityBadge
 import com.techquantum.tqdkhata.ui.components.StatusBadge
 import com.techquantum.tqdkhata.ui.theme.BrandBronze
@@ -93,7 +117,15 @@ import com.techquantum.tqdkhata.ui.theme.WhatsAppGreen
 import com.techquantum.tqdkhata.ui.viewmodel.ClientViewModel
 import com.techquantum.tqdkhata.util.DateUtils
 import com.techquantum.tqdkhata.util.IntentUtils
+import com.techquantum.tqdkhata.util.MediaUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Calendar
+import android.graphics.BitmapFactory
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,18 +133,90 @@ fun ClientDetailContent(
     modifier: Modifier = Modifier,
     client: ClientEntity,
     reminders: List<ReminderEntity> = emptyList(),
+    resources: List<ClientResourceEntity> = emptyList(),
     onNavigateBack: () -> Unit = {},
     onNavigateToEdit: (Long) -> Unit = {},
     onDeleteClient: () -> Unit = {},
     onUpdateStatus: (ProjectStatus) -> Unit = {},
     onSaveReminder: (ReminderEntity) -> Unit = {},
     onToggleReminder: (reminderId: Long, isCompleted: Boolean) -> Unit = { _, _ -> },
-    onDeleteReminder: (ReminderEntity) -> Unit = {}
+    onDeleteReminder: (ReminderEntity) -> Unit = {},
+    onAddResource: (ClientResourceEntity) -> Unit = {},
+    onDeleteResource: (ClientResourceEntity) -> Unit = {}
 ) {
     val context = LocalContext.current
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showStatusDialog by remember { mutableStateOf(false) }
     var showAddReminderDialog by remember { mutableStateOf(false) }
+    var showAddResourceDialog by remember { mutableStateOf(false) }
+    var resourceToDelete by remember { mutableStateOf<ClientResourceEntity?>(null) }
+    var reminderToDelete by remember { mutableStateOf<ReminderEntity?>(null) }
+
+    var pendingPhotoPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var previewPhotoPath by remember { mutableStateOf<String?>(null) }
+
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { _ ->
+        val savedPath = pendingPhotoPath ?: MediaUtils.getPendingPhotoPath(context, client.id)
+        val photoFile = savedPath?.let { File(it) }
+
+        if (photoFile != null && photoFile.exists() && photoFile.length() > 0L) {
+            val resource = ClientResourceEntity(
+                clientId = client.id,
+                filePath = photoFile.absolutePath,
+                resourceType = ResourceType.IMAGE,
+                title = "Photo"
+            )
+            onAddResource(resource)
+            Toast.makeText(context, "Photo captured and saved", Toast.LENGTH_SHORT).show()
+        } else {
+            photoFile?.delete()
+        }
+        pendingPhotoPath = null
+        MediaUtils.clearPendingPhotoPath(context, client.id)
+    }
+
+    val pickImageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val savedFile = MediaUtils.copyUriToLocalResource(context, uri, client.id, isVideo = false)
+            if (savedFile != null && savedFile.exists() && savedFile.length() > 0L) {
+                val resource = ClientResourceEntity(
+                    clientId = client.id,
+                    filePath = savedFile.absolutePath,
+                    resourceType = ResourceType.IMAGE,
+                    title = "Photo"
+                )
+                onAddResource(resource)
+                Toast.makeText(context, "Photo added to client records", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Failed to import photo", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    var cameraActionPending by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val requestCameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            cameraActionPending?.invoke()
+        } else {
+            Toast.makeText(context, "Camera permission is required to capture media", Toast.LENGTH_LONG).show()
+        }
+        cameraActionPending = null
+    }
+
+    val launchWithCameraPermission: (() -> Unit) -> Unit = { action ->
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            action()
+        } else {
+            cameraActionPending = action
+            requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
 
     Scaffold(
         containerColor = WarmBackground,
@@ -170,7 +274,14 @@ fun ClientDetailContent(
                                     fontWeight = FontWeight.Bold,
                                     color = BrandNavy
                                 )
-                                if (!client.businessName.isNullOrBlank()) {
+                                val businessSubtitle = buildString {
+                                    if (!client.businessName.isNullOrBlank()) append(client.businessName)
+                                    if (!client.businessType.isNullOrBlank()) {
+                                        if (isNotEmpty()) append(" • ")
+                                        append(client.businessType)
+                                    }
+                                }
+                                if (businessSubtitle.isNotBlank()) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier.padding(top = 4.dp)
@@ -183,7 +294,7 @@ fun ClientDetailContent(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = client.businessName,
+                                            text = businessSubtitle,
                                             fontSize = 14.sp,
                                             color = TextSecondary
                                         )
@@ -385,12 +496,116 @@ fun ClientDetailContent(
                             )
                         }
 
+                        if (!client.businessType.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            ContactDetailRow(
+                                icon = Icons.Default.Category,
+                                label = "Business Type",
+                                value = client.businessType
+                            )
+                        }
+
                         if (!client.address.isNullOrBlank()) {
                             Spacer(modifier = Modifier.height(10.dp))
                             ContactDetailRow(
                                 icon = Icons.Default.Home,
                                 label = "Address",
                                 value = client.address
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Media & Resources Section Header
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Photos & Resources",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = BrandNavy
+                        )
+                        Text(
+                            text = "${resources.size} files (photos & documents)",
+                            fontSize = 12.sp,
+                            color = TextMuted
+                        )
+                    }
+
+                    Button(
+                        onClick = { showAddResourceDialog = true },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = BrandCream,
+                            contentColor = BrandNavy
+                        )
+                    ) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add Photo", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // Media & Resources Horizontal List or Empty State Box
+            if (resources.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.White)
+                            .border(BorderStroke(1.dp, BrandSage.copy(alpha = 0.5f)), RoundedCornerShape(14.dp))
+                            .padding(20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = null,
+                                tint = BrandBronze.copy(alpha = 0.6f),
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "No photos or documents attached yet",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = TextMuted
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Take site photos, snap visiting cards, or upload from gallery",
+                                fontSize = 11.sp,
+                                color = TextMuted,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            } else {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        resources.forEach { res ->
+                            ResourceThumbnailCard(
+                                resource = res,
+                                onClick = {
+                                    previewPhotoPath = res.filePath
+                                },
+                                onDelete = {
+                                    resourceToDelete = res
+                                }
                             )
                         }
                     }
@@ -428,7 +643,7 @@ fun ClientDetailContent(
                     ) {
                         Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("+ Add Follow-up", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Add Follow-up", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -468,7 +683,7 @@ fun ClientDetailContent(
                             onToggleReminder(reminder.id, isDone)
                         },
                         onDelete = {
-                            onDeleteReminder(reminder)
+                            reminderToDelete = reminder
                         }
                     )
                 }
@@ -517,6 +732,69 @@ fun ClientDetailContent(
             }
         )
     }
+
+    // Delete Reminder Dialog
+    if (reminderToDelete != null) {
+        CustomDeleteReminderDialog(
+            reminderTitle = reminderToDelete!!.title,
+            onDismiss = { reminderToDelete = null },
+            onConfirmDelete = {
+                val rem = reminderToDelete!!
+                reminderToDelete = null
+                onDeleteReminder(rem)
+                Toast.makeText(context, "Follow-up deleted", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    // Add Resource Dialog
+    if (showAddResourceDialog) {
+        CustomAddResourceDialog(
+            onDismiss = { showAddResourceDialog = false },
+            onTakePhoto = {
+                showAddResourceDialog = false
+                launchWithCameraPermission {
+                    val file = MediaUtils.createMediaFile(context, client.id, isVideo = false)
+                    pendingPhotoPath = file.absolutePath
+                    MediaUtils.setPendingPhotoPath(context, client.id, file.absolutePath)
+                    val uri = MediaUtils.getFileUri(context, file)
+                    takePictureLauncher.launch(uri)
+                }
+            },
+            onPickImage = {
+                showAddResourceDialog = false
+                pickImageLauncher.launch("image/*")
+            }
+        )
+    }
+
+    // Delete Resource Dialog
+    if (resourceToDelete != null) {
+        CustomDeleteResourceDialog(
+            resource = resourceToDelete!!,
+            onDismiss = { resourceToDelete = null },
+            onConfirmDelete = {
+                val res = resourceToDelete!!
+                resourceToDelete = null
+                onDeleteResource(res)
+                Toast.makeText(context, "Photo deleted", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    // Full Photo Preview Dialog
+    if (previewPhotoPath != null) {
+        CustomPhotoViewDialog(
+            filePath = previewPhotoPath!!,
+            onDismiss = { previewPhotoPath = null },
+            onOpenExternal = {
+                val p = previewPhotoPath
+                if (p != null) {
+                    MediaUtils.viewMedia(context, p, isVideo = false)
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -530,6 +808,7 @@ fun ClientDetailScreen(
     val context = LocalContext.current
     val client by viewModel.getClient(clientId).collectAsState(initial = null)
     val reminders by viewModel.getRemindersForClient(clientId).collectAsState(initial = emptyList())
+    val resources by viewModel.getResourcesForClient(clientId).collectAsState(initial = emptyList())
 
     if (client == null) {
         Box(
@@ -546,6 +825,7 @@ fun ClientDetailScreen(
     ClientDetailContent(
         client = currentClient,
         reminders = reminders,
+        resources = resources,
         onNavigateBack = onNavigateBack,
         onNavigateToEdit = onNavigateToEdit,
         onDeleteClient = {
@@ -568,6 +848,12 @@ fun ClientDetailScreen(
         },
         onDeleteReminder = { reminder ->
             viewModel.deleteReminder(reminder)
+        },
+        onAddResource = { resource ->
+            viewModel.saveResource(resource)
+        },
+        onDeleteResource = { resource ->
+            viewModel.deleteResource(resource)
         },
         modifier = modifier
     )
@@ -703,7 +989,7 @@ private fun CustomStatusDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 6.dp),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             border = BorderStroke(1.dp, BrandSage.copy(alpha = 0.5f))
@@ -714,7 +1000,7 @@ private fun CustomStatusDialog(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(54.dp)
                         .clip(CircleShape)
                         .background(BrandCream),
                     contentAlignment = Alignment.Center
@@ -731,7 +1017,7 @@ private fun CustomStatusDialog(
 
                 Text(
                     text = "Update Status",
-                    fontSize = 18.sp,
+                    fontSize = 19.sp,
                     fontWeight = FontWeight.Bold,
                     color = BrandNavy
                 )
@@ -739,6 +1025,7 @@ private fun CustomStatusDialog(
                     text = "Select current progress stage",
                     fontSize = 12.sp,
                     color = TextSecondary,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 2.dp)
                 )
 
@@ -753,15 +1040,15 @@ private fun CustomStatusDialog(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(if (isSelected) BrandCream.copy(alpha = 0.45f) else Color.Transparent)
                                 .border(
                                     width = if (isSelected) 1.5.dp else 1.dp,
-                                    color = if (isSelected) BrandNavy else BrandSage.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(12.dp)
+                                    color = if (isSelected) BrandNavy else BrandSage.copy(alpha = 0.45f),
+                                    shape = RoundedCornerShape(14.dp)
                                 )
                                 .clickable { onStatusSelected(status) }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -784,7 +1071,7 @@ private fun CustomStatusDialog(
                     onClick = onDismiss,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp),
+                        .height(46.dp),
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, BrandSage)
                 ) {
@@ -805,7 +1092,7 @@ private fun CustomDeleteDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 6.dp),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             border = BorderStroke(1.dp, BrandSage.copy(alpha = 0.5f))
@@ -816,7 +1103,7 @@ private fun CustomDeleteDialog(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(54.dp)
                         .clip(CircleShape)
                         .background(Color(0xFFFEE2E2)),
                     contentAlignment = Alignment.Center
@@ -825,30 +1112,46 @@ private fun CustomDeleteDialog(
                         imageVector = Icons.Default.DeleteOutline,
                         contentDescription = null,
                         tint = Color(0xFFDC2626),
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
                     text = "Delete Client?",
-                    fontSize = 18.sp,
+                    fontSize = 19.sp,
                     fontWeight = FontWeight.Bold,
                     color = BrandNavy
                 )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
                 Text(
-                    text = "Are you sure you want to delete \"$clientName\"? All associated contact info, requirement notes, and reminders will be permanently removed.",
-                    fontSize = 13.sp,
+                    text = "Permanent record removal",
+                    fontSize = 12.sp,
                     color = TextSecondary,
                     textAlign = TextAlign.Center,
-                    lineHeight = 18.sp
+                    modifier = Modifier.padding(top = 2.dp)
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFFEF2F2))
+                        .border(1.dp, Color(0xFFFECACA), RoundedCornerShape(12.dp))
+                        .padding(14.dp)
+                ) {
+                    Text(
+                        text = "Are you sure you want to delete \"$clientName\"? All associated contact info, requirement notes, follow-up reminders, and media resources will be permanently removed.",
+                        fontSize = 13.sp,
+                        color = Color(0xFF991B1B),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -858,18 +1161,120 @@ private fun CustomDeleteDialog(
                         onClick = onDismiss,
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp),
+                            .height(46.dp),
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, BrandSage)
                     ) {
-                        Text("Cancel", color = BrandNavy, fontWeight = FontWeight.Medium)
+                        Text("Cancel", color = BrandNavy, fontWeight = FontWeight.SemiBold)
                     }
 
                     Button(
                         onClick = onConfirmDelete,
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp),
+                            .height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                    ) {
+                        Text("Delete", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomDeleteReminderDialog(
+    reminderTitle: String,
+    onDismiss: () -> Unit,
+    onConfirmDelete: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, BrandSage.copy(alpha = 0.5f))
+        ) {
+            Column(
+                modifier = Modifier.padding(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFEE2E2)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = null,
+                        tint = Color(0xFFDC2626),
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "Delete Follow-up?",
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = BrandNavy
+                )
+                Text(
+                    text = "Remove reminder from client profile",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFFEF2F2))
+                        .border(1.dp, Color(0xFFFECACA), RoundedCornerShape(12.dp))
+                        .padding(14.dp)
+                ) {
+                    Text(
+                        text = "Are you sure you want to delete \"$reminderTitle\"? This scheduled note will be permanently removed.",
+                        fontSize = 13.sp,
+                        color = Color(0xFF991B1B),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, BrandSage)
+                    ) {
+                        Text("Cancel", color = BrandNavy, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Button(
+                        onClick = onConfirmDelete,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
                     ) {
@@ -889,6 +1294,9 @@ private fun CustomAddReminderDialog(
     onSave: (ReminderEntity) -> Unit
 ) {
     val context = LocalContext.current
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ -> }
     var title by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
     var selectedTimestamp by remember { mutableStateOf<Long?>(null) }
@@ -927,18 +1335,18 @@ private fun CustomAddReminderDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 4.dp),
+                .padding(horizontal = 6.dp),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             border = BorderStroke(1.dp, BrandSage.copy(alpha = 0.5f))
         ) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(54.dp)
                         .clip(CircleShape)
                         .background(BrandCream),
                     contentAlignment = Alignment.Center
@@ -951,11 +1359,11 @@ private fun CustomAddReminderDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
                     text = "Add Follow-up Reminder",
-                    fontSize = 18.sp,
+                    fontSize = 19.sp,
                     fontWeight = FontWeight.Bold,
                     color = BrandNavy
                 )
@@ -963,6 +1371,7 @@ private fun CustomAddReminderDialog(
                     text = "For $clientName",
                     fontSize = 12.sp,
                     color = TextSecondary,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 2.dp)
                 )
 
@@ -1083,8 +1492,8 @@ private fun CustomAddReminderDialog(
 
                     OutlinedButton(
                         onClick = showDateTimePicker,
-                        modifier = Modifier.fillMaxWidth().height(38.dp),
-                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
+                        shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, BrandSage)
                     ) {
                         Icon(
@@ -1106,16 +1515,34 @@ private fun CustomAddReminderDialog(
                     }
 
                     if (selectedTimestamp != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(BrandCream.copy(alpha = 0.7f))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                tint = BrandBronze,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Clear schedule",
+                                text = "Alert notification scheduled",
+                                fontSize = 11.sp,
+                                color = BrandNavy,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "Clear",
                                 fontSize = 11.sp,
                                 color = TextMuted,
+                                fontWeight = FontWeight.Bold,
                                 modifier = Modifier
                                     .clickable { selectedTimestamp = null }
                                     .padding(4.dp)
@@ -1124,7 +1551,7 @@ private fun CustomAddReminderDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1134,11 +1561,11 @@ private fun CustomAddReminderDialog(
                         onClick = onDismiss,
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp),
+                            .height(46.dp),
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, BrandSage)
                     ) {
-                        Text("Cancel", color = BrandNavy, fontWeight = FontWeight.Medium)
+                        Text("Cancel", color = BrandNavy, fontWeight = FontWeight.SemiBold)
                     }
 
                     Button(
@@ -1147,6 +1574,11 @@ private fun CustomAddReminderDialog(
                                 Toast.makeText(context, "Please enter a topic", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
+                            if (selectedTimestamp != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                    notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            }
                             val reminder = ReminderEntity(
                                 clientId = clientId,
                                 title = title.trim(),
@@ -1154,14 +1586,478 @@ private fun CustomAddReminderDialog(
                                 reminderTimestamp = selectedTimestamp
                             )
                             onSave(reminder)
+                            if (selectedTimestamp != null) {
+                                Toast.makeText(context, "Follow-up saved! Alert notification scheduled", Toast.LENGTH_SHORT).show()
+                            }
                         },
                         modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp),
+                            .weight(1.3f)
+                            .height(46.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = BrandNavy)
                     ) {
-                        Text("Save", color = Color.White, fontWeight = FontWeight.Bold)
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Save Note", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResourceThumbnailCard(
+    resource: ClientResourceEntity,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var bitmapState by remember(resource.filePath) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(resource.filePath) {
+        bitmapState = withContext(Dispatchers.IO) {
+            MediaUtils.loadThumbnail(resource.filePath, isVideo = false)
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .width(150.dp)
+            .height(170.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, BrandSage.copy(alpha = 0.5f))
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(125.dp)
+                    .background(Color(0xFFE2E8F0)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (bitmapState != null) {
+                    Image(
+                        bitmap = bitmapState!!.asImageBitmap(),
+                        contentDescription = resource.title ?: "Photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = null,
+                            tint = BrandNavy.copy(alpha = 0.4f),
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                }
+
+                // Top Type Pill
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(BrandNavy.copy(alpha = 0.75f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "PHOTO",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                // Delete Button
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.85f))
+                        .clickable(onClick = onDelete),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = "Delete",
+                        tint = Color(0xFFDC2626),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // Info snippet below
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = DateUtils.formatDate(resource.createdAt),
+                    fontSize = 11.sp,
+                    color = TextMuted,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomAddResourceDialog(
+    onDismiss: () -> Unit,
+    onTakePhoto: () -> Unit,
+    onPickImage: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, BrandSage.copy(alpha = 0.5f))
+        ) {
+            Column(
+                modifier = Modifier.padding(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(BrandCream),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = null,
+                        tint = BrandNavy,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "Add Photo & Resource",
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = BrandNavy
+                )
+                Text(
+                    text = "Attach photos, documents, or visiting cards",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                MediaOptionTile(
+                    icon = Icons.Default.CameraAlt,
+                    title = "Take Photo",
+                    subtitle = "Capture a photo with device camera",
+                    iconBackground = BrandNavy,
+                    onClick = onTakePhoto
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                MediaOptionTile(
+                    icon = Icons.Default.PhotoLibrary,
+                    title = "Upload Photo",
+                    subtitle = "Select an existing picture from gallery",
+                    iconBackground = BrandBronze,
+                    onClick = onPickImage
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, BrandSage)
+                ) {
+                    Text("Cancel", color = BrandNavy, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MediaOptionTile(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    iconBackground: Color,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(BrandCream.copy(alpha = 0.35f))
+            .border(1.dp, BrandSage.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(iconBackground),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = BrandNavy
+            )
+            Text(
+                text = subtitle,
+                fontSize = 11.sp,
+                color = TextSecondary
+            )
+        }
+    }
+}
+
+@Composable
+private fun CustomDeleteResourceDialog(
+    resource: ClientResourceEntity,
+    onDismiss: () -> Unit,
+    onConfirmDelete: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, BrandSage.copy(alpha = 0.5f))
+        ) {
+            Column(
+                modifier = Modifier.padding(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFEE2E2)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = null,
+                        tint = Color(0xFFDC2626),
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "Delete Photo?",
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = BrandNavy
+                )
+                Text(
+                    text = "Permanent storage removal",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFFEF2F2))
+                        .border(1.dp, Color(0xFFFECACA), RoundedCornerShape(12.dp))
+                        .padding(14.dp)
+                ) {
+                    Text(
+                        text = "Are you sure you want to permanently delete this photo from client records and device storage?",
+                        fontSize = 13.sp,
+                        color = Color(0xFF991B1B),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, BrandSage)
+                    ) {
+                        Text("Cancel", color = BrandNavy, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Button(
+                        onClick = onConfirmDelete,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                    ) {
+                        Text("Delete", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomPhotoViewDialog(
+    filePath: String,
+    onDismiss: () -> Unit,
+    onOpenExternal: () -> Unit
+) {
+    var fullBitmap by remember(filePath) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(filePath) {
+        fullBitmap = withContext(Dispatchers.IO) {
+            MediaUtils.loadThumbnail(filePath, isVideo = false)
+                ?: BitmapFactory.decodeFile(filePath)
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, BrandSage.copy(alpha = 0.5f))
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Photo Preview",
+                        color = BrandNavy,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = BrandNavy
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(340.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFFF1F5F9)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (fullBitmap != null) {
+                        Image(
+                            bitmap = fullBitmap!!.asImageBitmap(),
+                            contentDescription = "Full photo",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = null,
+                                tint = BrandNavy.copy(alpha = 0.4f),
+                                modifier = Modifier.size(40.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Loading photo...", color = TextMuted, fontSize = 13.sp)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, BrandSage)
+                    ) {
+                        Text("Close", color = BrandNavy, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Button(
+                        onClick = onOpenExternal,
+                        modifier = Modifier.weight(1.2f).height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandNavy)
+                    ) {
+                        Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Open Full", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }

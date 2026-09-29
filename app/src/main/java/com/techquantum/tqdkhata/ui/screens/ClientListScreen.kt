@@ -20,13 +20,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
@@ -37,28 +43,48 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.techquantum.tqdkhata.R
+import com.techquantum.tqdkhata.data.model.BackupData
 import com.techquantum.tqdkhata.data.model.ClientEntity
+import com.techquantum.tqdkhata.data.model.ImportMode
 import com.techquantum.tqdkhata.data.model.ProjectStatus
+import com.techquantum.tqdkhata.ui.dialogs.ExportOptionsDialog
+import com.techquantum.tqdkhata.ui.dialogs.ImportConfirmDialog
+import com.techquantum.tqdkhata.ui.dialogs.StoragePermissionRationaleDialog
+import com.techquantum.tqdkhata.util.IntentUtils
+import com.techquantum.tqdkhata.util.JsonBackupUtils
+import com.techquantum.tqdkhata.util.StoragePermissionHelper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.nio.charset.StandardCharsets
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.techquantum.tqdkhata.ui.components.ClientCard
 import com.techquantum.tqdkhata.ui.components.StatSummaryCard
 import com.techquantum.tqdkhata.ui.theme.BrandBronze
@@ -87,17 +113,21 @@ fun ClientListContent(
     inProgressCount: Int = clients.count { it.status == ProjectStatus.IN_PROGRESS },
     deliveredCount: Int = clients.count { it.status == ProjectStatus.DELIVERED },
     pendingRemindersCount: Int = 0,
+    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
     onSearchQueryChange: (String) -> Unit = {},
     onCitySelected: (String?) -> Unit = {},
     onStatusSelected: (ProjectStatus?) -> Unit = {},
     onNavigateToAddClient: () -> Unit = {},
     onNavigateToClientDetail: (Long) -> Unit = {},
     onNavigateToReminders: () -> Unit = {},
+    onExportClick: () -> Unit = {},
+    onImportClick: () -> Unit = {},
 ) {
     var cityDropdownExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = WarmBackground,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = onNavigateToAddClient,
@@ -145,30 +175,87 @@ fun ClientListContent(
                         )
                     }
 
-                    // Reminders button with badge
-                    IconButton(
-                        onClick = onNavigateToReminders,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(BrandCream)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        BadgedBox(
-                            badge = {
-                                if (pendingRemindersCount > 0) {
-                                    Badge(
-                                        containerColor = BrandBronze,
-                                        contentColor = Color.White
-                                    ) {
-                                        Text(pendingRemindersCount.toString())
+                        // Reminders button with badge
+                        IconButton(
+                            onClick = onNavigateToReminders,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(BrandCream)
+                        ) {
+                            BadgedBox(
+                                badge = {
+                                    if (pendingRemindersCount > 0) {
+                                        Badge(
+                                            containerColor = BrandBronze,
+                                            contentColor = Color.White
+                                        ) {
+                                            Text(pendingRemindersCount.toString())
+                                        }
                                     }
                                 }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.EventNote,
+                                    contentDescription = "Reminders",
+                                    tint = BrandNavy
+                                )
                             }
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.EventNote,
-                                contentDescription = "Reminders",
-                                tint = BrandNavy
-                            )
+                        }
+
+                        // Backup & Restore (JSON) options dropdown
+                        Box {
+                            var menuExpanded by remember { mutableStateOf(false) }
+
+                            IconButton(
+                                onClick = { menuExpanded = true },
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(BrandCream)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Data Options",
+                                    tint = BrandNavy
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Export Data (JSON)") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.UploadFile,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onExportClick()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Import Data (JSON)") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.FileOpen,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onImportClick()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -465,6 +552,12 @@ fun ClientListContent(
     }
 }
 
+enum class PendingBackupAction {
+    EXPORT_SAVE,
+    EXPORT_SHARE,
+    IMPORT
+}
+
 @Composable
 fun ClientListScreen(
     viewModel: ClientViewModel,
@@ -473,6 +566,10 @@ fun ClientListScreen(
     onNavigateToReminders: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
     val clients by viewModel.clients.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedCity by viewModel.selectedCity.collectAsState()
@@ -486,6 +583,158 @@ fun ClientListScreen(
     val reminders by viewModel.reminders.collectAsState()
     val pendingRemindersCount = reminders.count { !it.isCompleted }
 
+    // Dialog & Action States
+    var showExportOptionsDialog by remember { mutableStateOf(false) }
+    var showImportConfirmDialog by remember { mutableStateOf(false) }
+    var pendingImportData by remember { mutableStateOf<BackupData?>(null) }
+    var showPermissionRationaleDialog by remember { mutableStateOf(false) }
+    var pendingAction by remember { mutableStateOf<PendingBackupAction?>(null) }
+
+    // Create Document Launcher for JSON Export
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.exportDataToJson(
+                onSuccess = { jsonString ->
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            context.contentResolver.openOutputStream(uri)?.use { out ->
+                                out.write(jsonString.toByteArray(StandardCharsets.UTF_8))
+                            }
+                            withContext(Dispatchers.Main) {
+                                snackbarHostState.showSnackbar("Backup saved successfully")
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                snackbarHostState.showSnackbar(formatShortError("Save failed", e))
+                            }
+                        }
+                    }
+                },
+                onError = { e ->
+                    scope.launch {
+                        snackbarHostState.showSnackbar(formatShortError("Export failed", e))
+                    }
+                }
+            )
+        }
+    }
+
+    // Open Document Launcher for JSON Import
+    val openDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val content = context.contentResolver.openInputStream(uri)?.use { stream ->
+                        stream.bufferedReader().use { it.readText() }
+                    }
+                    if (content.isNullOrBlank()) {
+                        withContext(Dispatchers.Main) {
+                            snackbarHostState.showSnackbar("File is empty")
+                        }
+                        return@launch
+                    }
+                    val backupData = JsonBackupUtils.parseBackupJson(content)
+                    withContext(Dispatchers.Main) {
+                        pendingImportData = backupData
+                        showImportConfirmDialog = true
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        snackbarHostState.showSnackbar(formatShortError("Invalid file", e))
+                    }
+                }
+            }
+        }
+    }
+
+    // Runtime Permission Launcher
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissionsMap ->
+        val allGranted = permissionsMap.values.all { it }
+        if (allGranted) {
+            when (pendingAction) {
+                PendingBackupAction.EXPORT_SAVE -> {
+                    val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                    createDocumentLauncher.launch("TQD_Khata_Backup_$timeStamp.json")
+                }
+                PendingBackupAction.EXPORT_SHARE -> {
+                    viewModel.exportDataToJson(
+                        onSuccess = { json -> IntentUtils.shareJsonBackup(context, json) },
+                        onError = { e ->
+                            scope.launch { snackbarHostState.showSnackbar(formatShortError("Export failed", e)) }
+                        }
+                    )
+                }
+                PendingBackupAction.IMPORT -> {
+                    openDocumentLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                }
+                null -> {}
+            }
+        } else {
+            showPermissionRationaleDialog = true
+        }
+        pendingAction = null
+    }
+
+    val triggerExportSave = {
+        if (StoragePermissionHelper.hasStoragePermissions(context)) {
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+            createDocumentLauncher.launch("TQD_Khata_Backup_$timeStamp.json")
+        } else {
+            pendingAction = PendingBackupAction.EXPORT_SAVE
+            val req = StoragePermissionHelper.getRequiredPermissions()
+            if (req.isNotEmpty()) {
+                permissionLauncher.launch(req)
+            } else {
+                val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                createDocumentLauncher.launch("TQD_Khata_Backup_$timeStamp.json")
+            }
+        }
+    }
+
+    val triggerExportShare = {
+        if (StoragePermissionHelper.hasStoragePermissions(context)) {
+            viewModel.exportDataToJson(
+                onSuccess = { json -> IntentUtils.shareJsonBackup(context, json) },
+                onError = { e ->
+                    scope.launch { snackbarHostState.showSnackbar(formatShortError("Export failed", e)) }
+                }
+            )
+        } else {
+            pendingAction = PendingBackupAction.EXPORT_SHARE
+            val req = StoragePermissionHelper.getRequiredPermissions()
+            if (req.isNotEmpty()) {
+                permissionLauncher.launch(req)
+            } else {
+                viewModel.exportDataToJson(
+                    onSuccess = { json -> IntentUtils.shareJsonBackup(context, json) },
+                    onError = { e ->
+                        scope.launch { snackbarHostState.showSnackbar(formatShortError("Export failed", e)) }
+                    }
+                )
+            }
+        }
+    }
+
+    val triggerImport = {
+        if (StoragePermissionHelper.hasStoragePermissions(context)) {
+            openDocumentLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+        } else {
+            pendingAction = PendingBackupAction.IMPORT
+            val req = StoragePermissionHelper.getRequiredPermissions()
+            if (req.isNotEmpty()) {
+                permissionLauncher.launch(req)
+            } else {
+                openDocumentLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+            }
+        }
+    }
+
     ClientListContent(
         clients = clients,
         searchQuery = searchQuery,
@@ -497,12 +746,94 @@ fun ClientListScreen(
         inProgressCount = inProgressCount,
         deliveredCount = deliveredCount,
         pendingRemindersCount = pendingRemindersCount,
+        snackbarHostState = snackbarHostState,
         onSearchQueryChange = viewModel::onSearchQueryChanged,
         onCitySelected = viewModel::onCitySelected,
         onStatusSelected = viewModel::onStatusSelected,
         onNavigateToAddClient = onNavigateToAddClient,
         onNavigateToClientDetail = onNavigateToClientDetail,
         onNavigateToReminders = onNavigateToReminders,
+        onExportClick = { showExportOptionsDialog = true },
+        onImportClick = triggerImport,
         modifier = modifier
     )
+
+    // Export Options Dialog
+    if (showExportOptionsDialog) {
+        ExportOptionsDialog(
+            clientCount = totalCount,
+            reminderCount = reminders.size,
+            onSaveToFile = triggerExportSave,
+            onShare = triggerExportShare,
+            onDismiss = { showExportOptionsDialog = false }
+        )
+    }
+
+    // Import Preview & Confirmation Dialog
+    pendingImportData?.let { backupData ->
+        if (showImportConfirmDialog) {
+            ImportConfirmDialog(
+                backupData = backupData,
+                onConfirm = {
+                    showImportConfirmDialog = false
+                    viewModel.importBackupData(
+                        backupData = backupData,
+                        onSuccess = { result ->
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    "Imported ${result.clientsImported} clients, ${result.remindersImported} reminders"
+                                )
+                            }
+                            pendingImportData = null
+                        },
+                        onError = { err ->
+                            scope.launch {
+                                snackbarHostState.showSnackbar(formatShortError("Import failed", err))
+                            }
+                            pendingImportData = null
+                        }
+                    )
+                },
+                onDismiss = {
+                    showImportConfirmDialog = false
+                    pendingImportData = null
+                }
+            )
+        }
+    }
+
+    // Storage Permission Rationale Dialog
+    if (showPermissionRationaleDialog) {
+        StoragePermissionRationaleDialog(
+            message = StoragePermissionHelper.getPermissionRationaleMessage(),
+            onGrantPermission = {
+                showPermissionRationaleDialog = false
+                val req = StoragePermissionHelper.getRequiredPermissions()
+                if (req.isNotEmpty()) {
+                    permissionLauncher.launch(req)
+                } else {
+                    IntentUtils.openAppSettings(context)
+                }
+            },
+            onDismiss = { showPermissionRationaleDialog = false }
+        )
+    }
 }
+
+private fun formatShortError(prefix: String, error: Throwable?): String {
+    val msg = error?.localizedMessage ?: error?.message ?: return prefix
+    val reason = when {
+        msg.contains("empty", ignoreCase = true) -> "File is empty"
+        msg.contains("not a valid JSON", ignoreCase = true) || msg.contains("Unexpected", ignoreCase = true) || msg.contains("JSON", ignoreCase = true) -> "Invalid JSON"
+        msg.contains("Permission", ignoreCase = true) || msg.contains("denied", ignoreCase = true) -> "Permission denied"
+        msg.contains("space", ignoreCase = true) || msg.contains("full", ignoreCase = true) -> "Storage full"
+        msg.contains("not found", ignoreCase = true) -> "File not found"
+        msg.contains("format", ignoreCase = true) || msg.contains("structure", ignoreCase = true) -> "Invalid format"
+        else -> {
+            val stripped = msg.substringAfterLast(":").trim()
+            if (stripped.length in 1..25) stripped else "Please try again"
+        }
+    }
+    return "$prefix: $reason"
+}
+

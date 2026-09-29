@@ -43,8 +43,20 @@ interface ClientDao {
     @Query("SELECT COUNT(*) FROM clients WHERE status = :status")
     fun getCountByStatus(status: String): Flow<Int>
 
+    @Query("SELECT * FROM clients ORDER BY id ASC")
+    suspend fun getAllClientsList(): List<ClientEntity>
+
+    @Query("SELECT COUNT(*) FROM clients WHERE id = :id")
+    suspend fun clientExists(id: Long): Int
+
+    @Query("SELECT * FROM clients WHERE id = :id LIMIT 1")
+    suspend fun getClientByIdDirect(id: Long): ClientEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertClient(client: ClientEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertClients(clients: List<ClientEntity>): List<Long>
 
     @Update
     suspend fun updateClient(client: ClientEntity)
@@ -54,4 +66,7 @@ interface ClientDao {
 
     @Query("DELETE FROM clients WHERE id = :id")
     suspend fun deleteClientById(id: Long)
+
+    @Query("DELETE FROM clients")
+    suspend fun deleteAllClients()
 }

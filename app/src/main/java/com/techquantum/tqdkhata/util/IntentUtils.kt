@@ -3,10 +3,15 @@ package com.techquantum.tqdkhata.util
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import com.techquantum.tqdkhata.data.model.ClientEntity
+import java.io.File
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import androidx.core.net.toUri
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 object IntentUtils {
 
@@ -18,7 +23,7 @@ object IntentUtils {
             }
             context.startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(context, "Cannot open dialer: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Cannot open phone dialer", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -44,7 +49,7 @@ object IntentUtils {
                 context.startActivity(fallbackIntent)
             }
         } catch (e: Exception) {
-            Toast.makeText(context, "WhatsApp not installed or could not open", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "WhatsApp not installed", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -98,7 +103,45 @@ object IntentUtils {
             }
             context.startActivity(Intent.createChooser(intent, "Share Client via"))
         } catch (e: Exception) {
-            Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Share failed", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun shareJsonBackup(context: Context, jsonContent: String) {
+        try {
+            val cacheDir = File(context.cacheDir, "backups").apply { mkdirs() }
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+            val fileName = "TQD_Khata_Backup_$timeStamp.json"
+            val file = File(cacheDir, fileName)
+            file.writeText(jsonContent, StandardCharsets.UTF_8)
+
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/json"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "TQD Khata JSON Backup - $fileName")
+                putExtra(Intent.EXTRA_TEXT, "Here is the TQD Khata backup file in JSON format.")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "Share JSON Backup via"))
+        } catch (e: Exception) {
+            Toast.makeText(context, "Share failed", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun openAppSettings(context: Context) {
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = "package:${context.packageName}".toUri()
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Could not open settings", Toast.LENGTH_SHORT).show()
         }
     }
 }

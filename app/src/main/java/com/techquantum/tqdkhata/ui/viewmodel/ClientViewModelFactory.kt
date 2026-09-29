@@ -11,7 +11,7 @@ class ClientViewModelFactory(private val context: Context) : ViewModelProvider.F
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ClientViewModel::class.java)) {
             val db = AppDatabase.getDatabase(context.applicationContext)
-            val repository = ClientRepository(db.clientDao(), db.reminderDao())
+            val repository = ClientRepository(db.clientDao(), db.reminderDao(), db.clientResourceDao(), db, context.applicationContext)
             return ClientViewModel(repository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")

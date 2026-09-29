@@ -3,6 +3,7 @@ package com.techquantum.tqdkhata.data.local
 import androidx.room.TypeConverter
 import com.techquantum.tqdkhata.data.model.Priority
 import com.techquantum.tqdkhata.data.model.ProjectStatus
+import com.techquantum.tqdkhata.data.model.ResourceType
 
 class Converters {
     @TypeConverter
@@ -18,4 +19,11 @@ class Converters {
     @TypeConverter
     fun toPriority(value: String?): Priority? =
         value?.let { Priority.fromString(it) }
+
+    @TypeConverter
+    fun fromResourceType(type: ResourceType?): String? = type?.name
+
+    @TypeConverter
+    fun toResourceType(value: String?): ResourceType? =
+        value?.let { ResourceType.fromString(it) }
 }

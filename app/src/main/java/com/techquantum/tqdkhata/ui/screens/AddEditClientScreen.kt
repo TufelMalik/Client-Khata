@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Business
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Home
@@ -88,6 +89,7 @@ fun AddEditClientContent(
     var altPhone by remember(initialClient) { mutableStateOf(initialClient?.altPhone ?: "") }
     var email by remember(initialClient) { mutableStateOf(initialClient?.email ?: "") }
     var businessName by remember(initialClient) { mutableStateOf(initialClient?.businessName ?: "") }
+    var businessType by remember(initialClient) { mutableStateOf(initialClient?.businessType ?: "") }
     var requirements by remember(initialClient) { mutableStateOf(initialClient?.requirements ?: "") }
     var budget by remember(initialClient) { mutableStateOf(initialClient?.budget ?: "") }
     var city by remember(initialClient) { mutableStateOf(initialClient?.city ?: "Bharuch") }
@@ -197,6 +199,46 @@ fun AddEditClientContent(
                         label = "Business / Company Name (Optional)",
                         icon = Icons.Default.Business
                     )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    InputField(
+                        value = businessType,
+                        onValueChange = { businessType = it },
+                        label = "Business Type (Optional)",
+                        icon = Icons.Default.Category
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val businessTypeSuggestions = listOf(
+                        "Retail", "Wholesale", "Services", "Restaurant",
+                        "IT / Software", "Construction", "Manufacturing", "Pharma"
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        businessTypeSuggestions.forEach { suggestion ->
+                            val isSelected = businessType.equals(suggestion, ignoreCase = true)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    businessType = if (isSelected) "" else suggestion
+                                },
+                                label = { Text(suggestion, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = BrandNavy,
+                                    selectedLabelColor = Color.White,
+                                    containerColor = BrandCream.copy(alpha = 0.5f),
+                                    labelColor = BrandNavy
+                                ),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -361,6 +403,7 @@ fun AddEditClientContent(
                         altPhone = altPhone.trim().ifBlank { null },
                         email = email.trim().ifBlank { null },
                         businessName = businessName.trim().ifBlank { null },
+                        businessType = businessType.trim().ifBlank { null },
                         requirements = requirements.trim(),
                         budget = budget.trim().ifBlank { null },
                         status = status,

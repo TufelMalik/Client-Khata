@@ -12,6 +12,7 @@ data class ClientEntity(
     val altPhone: String? = null,
     val email: String? = null,
     val businessName: String? = null,
+    val businessType: String? = null,
     val requirements: String,
     val budget: String? = null,
     val status: ProjectStatus = ProjectStatus.NEW_LEAD,

@@ -2,7 +2,11 @@ package com.techquantum.tqdkhata.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.techquantum.tqdkhata.data.model.BackupData
 import com.techquantum.tqdkhata.data.model.ClientEntity
+import com.techquantum.tqdkhata.data.model.ClientResourceEntity
+import com.techquantum.tqdkhata.data.model.ImportMode
+import com.techquantum.tqdkhata.data.model.ImportResult
 import com.techquantum.tqdkhata.data.model.ProjectStatus
 import com.techquantum.tqdkhata.data.model.ReminderEntity
 import com.techquantum.tqdkhata.data.model.ReminderWithClient
@@ -22,6 +26,12 @@ import kotlinx.coroutines.launch
 class ClientViewModel(
     private val repository: ClientRepository
 ) : ViewModel() {
+
+    init {
+        viewModelScope.launch {
+            repository.cleanupAllVideoResources()
+        }
+    }
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -141,6 +151,67 @@ class ClientViewModel(
     fun deleteReminder(reminder: ReminderEntity) {
         viewModelScope.launch {
             repository.deleteReminder(reminder)
+        }
+    }
+
+    fun getResourcesForClient(clientId: Long): Flow<List<ClientResourceEntity>> =
+        repository.getResourcesForClient(clientId)
+
+    fun saveResource(resource: ClientResourceEntity, onComplete: ((Long) -> Unit)? = null) {
+        viewModelScope.launch {
+            val id = repository.saveResource(resource)
+            onComplete?.invoke(id)
+        }
+    }
+
+    fun deleteResource(resource: ClientResourceEntity, onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            repository.deleteResource(resource)
+            onComplete?.invoke()
+        }
+    }
+
+    fun exportDataToJson(
+        onSuccess: (String) -> Unit,
+        onError: (Throwable) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                val json = repository.exportDataToJson()
+                onSuccess(json)
+            } catch (e: Throwable) {
+                onError(e)
+            }
+        }
+    }
+
+    fun importBackupData(
+        backupData: BackupData,
+        onSuccess: (ImportResult) -> Unit,
+        onError: (Throwable) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                val result = repository.importBackupData(backupData)
+                onSuccess(result)
+            } catch (e: Throwable) {
+                onError(e)
+            }
+        }
+    }
+
+    fun importDataFromJson(
+        jsonData: String,
+        onSuccess: (ImportResult) -> Unit,
+        onError: (Throwable) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                val result = repository.importDataFromJson(jsonData)
+                onSuccess(result)
+            } catch (e: Throwable) {
+                onError(e)
+            }
         }
     }
 }
