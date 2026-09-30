@@ -50,6 +50,7 @@
     </queries>
 
     <application
+        android:name=".app.TQDKhataApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -60,7 +61,7 @@
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.TQDKhata">
         <activity
-            android:name=".MainActivity"
+            android:name=".app.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.TQDKhata"
             android:windowSoftInputMode="adjustResize">
@@ -83,11 +84,11 @@
 
         <!-- Broadcast Receivers for Reminder Notifications and Reboot Rescheduling -->
         <receiver
-            android:name=".receiver.ReminderNotificationReceiver"
+            android:name=".utils.receiver.ReminderNotificationReceiver"
             android:exported="false" />
 
         <receiver
-            android:name=".receiver.BootReceiver"
+            android:name=".utils.receiver.BootReceiver"
             android:exported="true"
             android:enabled="true">
             <intent-filter>
@@ -97,6 +98,11 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- Background Service for Reminder Synchronization -->
+        <service
+            android:name=".utils.service.ReminderSyncService"
+            android:exported="false" />
     </application>
 
 </manifest>

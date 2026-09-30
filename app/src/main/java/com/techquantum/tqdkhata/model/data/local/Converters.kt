@@ -1,0 +1,29 @@
+package com.techquantum.tqdkhata.model.data.local
+
+import androidx.room.TypeConverter
+import com.techquantum.tqdkhata.model.enums.Priority
+import com.techquantum.tqdkhata.model.enums.ProjectStatus
+import com.techquantum.tqdkhata.model.enums.ResourceType
+
+class Converters {
+    @TypeConverter
+    fun fromProjectStatus(status: ProjectStatus?): String? = status?.name
+
+    @TypeConverter
+    fun toProjectStatus(value: String?): ProjectStatus? =
+        value?.let { ProjectStatus.fromString(it) }
+
+    @TypeConverter
+    fun fromPriority(priority: Priority?): String? = priority?.name
+
+    @TypeConverter
+    fun toPriority(value: String?): Priority? =
+        value?.let { Priority.fromString(it) }
+
+    @TypeConverter
+    fun fromResourceType(type: ResourceType?): String? = type?.name
+
+    @TypeConverter
+    fun toResourceType(value: String?): ResourceType? =
+        value?.let { ResourceType.fromString(it) }
+}
