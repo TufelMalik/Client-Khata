@@ -76,4 +76,24 @@ interface ReminderDao {
 
     @Query("UPDATE reminders SET isCompleted = :isCompleted WHERE id = :id")
     suspend fun setCompletionStatus(id: Long, isCompleted: Boolean)
+
+    @Query("""
+        SELECT r.id, r.clientId, c.name AS clientName, c.phone AS clientPhone,
+               r.title, r.notes, r.reminderTimestamp, r.isCompleted, r.createdAt
+        FROM reminders r
+        INNER JOIN clients c ON r.clientId = c.id
+        WHERE r.isCompleted = 0 
+          AND r.reminderTimestamp IS NOT NULL 
+          AND r.reminderTimestamp <= :endOfDay
+        ORDER BY r.reminderTimestamp ASC
+    """)
+    fun getTodaysRemindersWithClient(endOfDay: Long): Flow<List<ReminderWithClient>>
+
+    @Query("""
+        SELECT COUNT(*) FROM reminders 
+        WHERE isCompleted = 0 
+          AND reminderTimestamp IS NOT NULL 
+          AND reminderTimestamp <= :endOfDay
+    """)
+    fun getTodaysFollowUpCount(endOfDay: Long): Flow<Int>
 }

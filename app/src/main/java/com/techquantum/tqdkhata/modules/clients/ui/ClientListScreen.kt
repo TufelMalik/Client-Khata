@@ -93,6 +93,9 @@ import com.techquantum.tqdkhata.utils.helpers.StoragePermissionHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.techquantum.tqdkhata.model.enums.SortOption
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Check
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -106,16 +109,19 @@ fun ClientListContent(
     searchQuery: String = "",
     selectedCity: String? = null,
     selectedStatus: ProjectStatus? = null,
+    selectedSort: SortOption = SortOption.PRIORITY,
     distinctCities: List<String> = emptyList(),
     totalCount: Int = clients.size,
     leadsCount: Int = clients.count { it.status == ProjectStatus.NEW_LEAD },
     inProgressCount: Int = clients.count { it.status == ProjectStatus.IN_PROGRESS },
     deliveredCount: Int = clients.count { it.status == ProjectStatus.DELIVERED },
     pendingRemindersCount: Int = 0,
+    todaysFollowUpCount: Int = 0,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
     onSearchQueryChange: (String) -> Unit = {},
     onCitySelected: (String?) -> Unit = {},
     onStatusSelected: (ProjectStatus?) -> Unit = {},
+    onSortSelected: (SortOption) -> Unit = {},
     onNavigateToAddClient: () -> Unit = {},
     onNavigateToClientDetail: (Long) -> Unit = {},
     onNavigateToReminders: () -> Unit = {},
@@ -123,6 +129,7 @@ fun ClientListContent(
     onImportClick: () -> Unit = {},
 ) {
     var cityDropdownExpanded by remember { mutableStateOf(false) }
+    var sortDropdownExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = WarmBackground,
@@ -178,18 +185,18 @@ fun ClientListContent(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Reminders button with badge
+                        // Follow-ups & Reminders button with badge
                         IconButton(
                             onClick = onNavigateToReminders,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(BrandCream)
+                                .background(if (todaysFollowUpCount > 0) BrandNavy else BrandCream)
                         ) {
                             BadgedBox(
                                 badge = {
                                     if (pendingRemindersCount > 0) {
                                         Badge(
-                                            containerColor = BrandBronze,
+                                            containerColor = if (todaysFollowUpCount > 0) Color(0xFFC62828) else BrandBronze,
                                             contentColor = Color.White
                                         ) {
                                             Text(pendingRemindersCount.toString())
@@ -199,8 +206,8 @@ fun ClientListContent(
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.EventNote,
-                                    contentDescription = "Reminders",
-                                    tint = BrandNavy
+                                    contentDescription = "Follow-ups & Reminders",
+                                    tint = if (todaysFollowUpCount > 0) Color.White else BrandNavy
                                 )
                             }
                         }
@@ -353,6 +360,56 @@ fun ClientListContent(
                             unfocusedPlaceholderColor = BrandNavy
                         )
                     )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Sort Dropdown
+                    Box {
+                        IconButton(
+                            onClick = { sortDropdownExpanded = true },
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (selectedSort != SortOption.PRIORITY) BrandNavy else BrandCream)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Sort,
+                                contentDescription = "Sort",
+                                tint = if (selectedSort != SortOption.PRIORITY) Color.White else BrandNavy,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = sortDropdownExpanded,
+                            onDismissRequest = { sortDropdownExpanded = false }
+                        ) {
+                            SortOption.entries.forEach { option ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(option.label)
+                                            if (selectedSort == option) {
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = BrandNavy,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onClick = {
+                                        onSortSelected(option)
+                                        sortDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.width(8.dp))
 
@@ -573,6 +630,7 @@ fun ClientListScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedCity by viewModel.selectedCity.collectAsState()
     val selectedStatus by viewModel.selectedStatus.collectAsState()
+    val selectedSort by viewModel.selectedSort.collectAsState()
     val distinctCities by viewModel.distinctCities.collectAsState()
 
     val totalCount by viewModel.totalCount.collectAsState()
@@ -581,6 +639,7 @@ fun ClientListScreen(
     val deliveredCount by viewModel.deliveredCount.collectAsState()
     val reminders by viewModel.reminders.collectAsState()
     val pendingRemindersCount = reminders.count { !it.isCompleted }
+    val todaysFollowUpCount by viewModel.todaysFollowUpCount.collectAsState()
 
     // Dialog & Action States
     var showExportOptionsDialog by remember { mutableStateOf(false) }
@@ -739,16 +798,19 @@ fun ClientListScreen(
         searchQuery = searchQuery,
         selectedCity = selectedCity,
         selectedStatus = selectedStatus,
+        selectedSort = selectedSort,
         distinctCities = distinctCities,
         totalCount = totalCount,
         leadsCount = leadsCount,
         inProgressCount = inProgressCount,
         deliveredCount = deliveredCount,
         pendingRemindersCount = pendingRemindersCount,
+        todaysFollowUpCount = todaysFollowUpCount,
         snackbarHostState = snackbarHostState,
         onSearchQueryChange = viewModel::onSearchQueryChanged,
         onCitySelected = viewModel::onCitySelected,
         onStatusSelected = viewModel::onStatusSelected,
+        onSortSelected = viewModel::onSortSelected,
         onNavigateToAddClient = onNavigateToAddClient,
         onNavigateToClientDetail = onNavigateToClientDetail,
         onNavigateToReminders = onNavigateToReminders,

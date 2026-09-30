@@ -21,6 +21,7 @@ data class ClientEntity(
     val priority: Priority = Priority.MEDIUM,
     val address: String? = null,
     val city: String? = "Bharuch",
+    val shopImagePath: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

@@ -19,8 +19,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.techquantum.tqdkhata.model.enums.Priority
+import com.techquantum.tqdkhata.model.enums.SortOption
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ClientViewModel(
@@ -42,14 +45,33 @@ class ClientViewModel(
     private val _selectedStatus = MutableStateFlow<ProjectStatus?>(null)
     val selectedStatus: StateFlow<ProjectStatus?> = _selectedStatus.asStateFlow()
 
+    private val _selectedSort = MutableStateFlow(SortOption.PRIORITY)
+    val selectedSort: StateFlow<SortOption> = _selectedSort.asStateFlow()
+
     val clients: StateFlow<List<ClientEntity>> = combine(
         _searchQuery,
         _selectedCity,
-        _selectedStatus
-    ) { query, city, status ->
-        Triple(query, city, status)
-    }.flatMapLatest { (query, city, status) ->
-        repository.filterClients(query, city, status)
+        _selectedStatus,
+        _selectedSort
+    ) { query, city, status, sort ->
+        ClientFilterParams(query, city, status, sort)
+    }.flatMapLatest { params ->
+        repository.filterClients(params.query, params.city, params.status).map { list ->
+            when (params.sort) {
+                SortOption.PRIORITY -> list.sortedWith(
+                    compareBy<ClientEntity> {
+                        when (it.priority) {
+                            Priority.HIGH -> 0
+                            Priority.MEDIUM -> 1
+                            Priority.LOW -> 2
+                        }
+                    }.thenByDescending { it.updatedAt }
+                )
+                SortOption.RECENT -> list.sortedByDescending { it.updatedAt }
+                SortOption.NAME -> list.sortedBy { it.name.lowercase() }
+                SortOption.CITY -> list.sortedBy { it.city?.lowercase() ?: "zzz" }
+            }
+        }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -98,6 +120,20 @@ class ClientViewModel(
             initialValue = emptyList()
         )
 
+    val todaysReminders: StateFlow<List<ReminderWithClient>> = repository.getTodaysRemindersWithClient()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val todaysFollowUpCount: StateFlow<Int> = repository.getTodaysFollowUpCount()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 0
+        )
+
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
     }
@@ -108,6 +144,10 @@ class ClientViewModel(
 
     fun onStatusSelected(status: ProjectStatus?) {
         _selectedStatus.value = if (_selectedStatus.value == status) null else status
+    }
+
+    fun onSortSelected(sort: SortOption) {
+        _selectedSort.value = sort
     }
 
     fun getClient(id: Long): Flow<ClientEntity?> = repository.getClientById(id)
@@ -215,3 +255,10 @@ class ClientViewModel(
         }
     }
 }
+
+private data class ClientFilterParams(
+    val query: String,
+    val city: String?,
+    val status: ProjectStatus?,
+    val sort: SortOption
+)

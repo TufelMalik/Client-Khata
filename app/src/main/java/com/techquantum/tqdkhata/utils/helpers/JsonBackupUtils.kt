@@ -41,6 +41,7 @@ object JsonBackupUtils {
             sb.append("      \"priority\": \"").append(client.priority.name).append("\",\n")
             sb.append("      \"address\": ").append(client.address?.let { "\"${escapeJson(it)}\"" } ?: "null").append(",\n")
             sb.append("      \"city\": ").append(client.city?.let { "\"${escapeJson(it)}\"" } ?: "null").append(",\n")
+            sb.append("      \"shopImagePath\": ").append(client.shopImagePath?.let { "\"${escapeJson(it)}\"" } ?: "null").append(",\n")
             sb.append("      \"createdAt\": ").append(client.createdAt).append(",\n")
             sb.append("      \"updatedAt\": ").append(client.updatedAt).append("\n")
             sb.append("    }")
@@ -142,6 +143,7 @@ object JsonBackupUtils {
         val priority = Priority.fromString(map.getNullableString("priority"))
         val address = map.getNullableString("address")
         val city = map.getNullableString("city") ?: "Bharuch"
+        val shopImagePath = map.getNullableString("shopImagePath")
         val createdAt = (map["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis()
         val updatedAt = (map["updatedAt"] as? Number)?.toLong() ?: System.currentTimeMillis()
 
@@ -159,6 +161,7 @@ object JsonBackupUtils {
             priority = priority,
             address = address,
             city = city,
+            shopImagePath = shopImagePath,
             createdAt = createdAt,
             updatedAt = updatedAt
         )

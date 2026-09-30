@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -75,6 +77,7 @@ import com.techquantum.tqdkhata.utils.helpers.IntentUtils
 fun RemindersContent(
     modifier: Modifier = Modifier,
     reminders: List<ReminderWithClient>,
+    todaysReminders: List<ReminderWithClient> = emptyList(),
     onToggleReminder: (id: Long, completed: Boolean) -> Unit = { _, _ -> },
     onNavigateBack: () -> Unit = {},
     onNavigateToClientDetail: (Long) -> Unit = {}
@@ -112,13 +115,93 @@ fun RemindersContent(
             modifier = modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 20.dp)
         ) {
+            // Horizontal row list for Today's Reminders (if any)
+            if (todaysReminders.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp, bottom = 6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Today,
+                                contentDescription = null,
+                                tint = BrandNavy,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Today's Reminders (${todaysReminders.size})",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = BrandNavy
+                            )
+                        }
+
+                        val overdueCount = todaysReminders.count {
+                            !it.isCompleted && it.reminderTimestamp != null && it.reminderTimestamp < System.currentTimeMillis()
+                        }
+                        if (overdueCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFFFEE2E2))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "$overdueCount overdue",
+                                    color = Color(0xFFDC2626),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(todaysReminders, key = { "today_h_${it.id}" }) { item ->
+                            TodayReminderHorizontalCard(
+                                reminder = item,
+                                onToggle = { isDone -> onToggleReminder(item.id, isDone) },
+                                onClientClick = { onNavigateToClientDetail(item.clientId) },
+                                onCallClick = { IntentUtils.openDialer(context, item.clientPhone) },
+                                onWhatsAppClick = { IntentUtils.openWhatsApp(context, item.clientPhone) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp)
+                            .height(1.dp)
+                            .background(BrandSage.copy(alpha = 0.35f))
+                    )
+                }
+            }
+
             // Filter row: Pending vs All
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 10.dp),
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 4.dp, bottom = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilterChip(
@@ -148,11 +231,11 @@ fun RemindersContent(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
             if (filteredList.isEmpty()) {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 20.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -181,7 +264,9 @@ fun RemindersContent(
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
@@ -216,9 +301,11 @@ fun RemindersScreen(
     modifier: Modifier = Modifier
 ) {
     val allReminders by viewModel.reminders.collectAsState()
+    val todaysReminders by viewModel.todaysReminders.collectAsState()
 
     RemindersContent(
         reminders = allReminders,
+        todaysReminders = todaysReminders,
         onToggleReminder = viewModel::toggleReminderCompletion,
         onNavigateBack = onNavigateBack,
         onNavigateToClientDetail = onNavigateToClientDetail,
@@ -399,6 +486,191 @@ private fun ReminderCard(
                             imageVector = Icons.AutoMirrored.Filled.Chat,
                             contentDescription = "WhatsApp",
                             modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TodayReminderHorizontalCard(
+    reminder: ReminderWithClient,
+    onToggle: (Boolean) -> Unit,
+    onClientClick: () -> Unit,
+    onCallClick: () -> Unit,
+    onWhatsAppClick: () -> Unit
+) {
+    val isOverdue = !reminder.isCompleted && reminder.reminderTimestamp != null && reminder.reminderTimestamp < System.currentTimeMillis()
+    val borderColor = if (isOverdue) Color(0xFFC62828).copy(alpha = 0.45f) else BrandSage.copy(alpha = 0.6f)
+
+    Card(
+        modifier = Modifier.width(260.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isOverdue) Color(0xFFFFF5F5) else Color.White
+        ),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            // Header Row: Checkbox + Title + Due Time
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                IconButton(
+                    onClick = { onToggle(!reminder.isCompleted) },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = if (reminder.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                        contentDescription = "Toggle status",
+                        tint = if (reminder.isCompleted) BrandNavy else if (isOverdue) Color(0xFFC62828) else TextMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = reminder.title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (reminder.isCompleted) TextMuted else TextPrimary,
+                        textDecoration = if (reminder.isCompleted) TextDecoration.LineThrough else null,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    if (reminder.reminderTimestamp != null && reminder.reminderTimestamp > 0L) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = if (isOverdue) Color(0xFFC62828) else BrandBronze,
+                                modifier = Modifier.size(11.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = DateUtils.formatRelativeTime(reminder.reminderTimestamp),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (isOverdue) Color(0xFFC62828) else BrandBronze
+                            )
+                            if (isOverdue) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "• Overdue",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFC62828)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!reminder.notes.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = reminder.notes,
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 32.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Divider
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(BrandSage.copy(alpha = 0.35f))
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Footer: Client Name Tag (Left) and Action Buttons (Right)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onClientClick)
+                        .background(BrandCream.copy(alpha = 0.7f))
+                        .padding(horizontal = 7.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        tint = BrandNavy,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = reminder.clientName,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = BrandNavy,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    IconButton(
+                        onClick = onCallClick,
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(CircleShape),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = BrandNavy,
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Call,
+                            contentDescription = "Call",
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onWhatsAppClick,
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(CircleShape),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = WhatsAppGreen,
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Chat,
+                            contentDescription = "WhatsApp",
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }

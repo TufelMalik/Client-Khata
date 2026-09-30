@@ -261,8 +261,30 @@ fun ClientDetailContent(
                     shape = RoundedCornerShape(18.dp),
                     border = BorderStroke(1.dp, BrandSage.copy(alpha = 0.6f))
                 ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        Row(
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        if (client.shopImagePath != null) {
+                            val bitmap = produceState<Bitmap?>(initialValue = null, client.shopImagePath) {
+                                value = withContext(Dispatchers.IO) {
+                                    val file = File(client.shopImagePath)
+                                    if (file.exists()) MediaUtils.loadThumbnail(client.shopImagePath) else null
+                                }
+                            }
+                            bitmap.value?.let { bmp ->
+                                Image(
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = "Shop Photo",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(180.dp)
+                                        .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
+                                        .clickable { previewPhotoPath = client.shopImagePath },
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                        }
+
+                        Column(modifier = Modifier.padding(18.dp)) {
+                            Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.Top
@@ -399,6 +421,7 @@ fun ClientDetailContent(
                     }
                 }
             }
+        }
 
             // Requirements Section
             item {

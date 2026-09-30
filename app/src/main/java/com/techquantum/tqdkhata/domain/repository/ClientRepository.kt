@@ -24,6 +24,8 @@ interface ClientRepository {
     fun getRemindersForClient(clientId: Long): Flow<List<ReminderEntity>>
     fun getAllRemindersWithClient(): Flow<List<ReminderWithClient>>
     fun getPendingRemindersWithClient(): Flow<List<ReminderWithClient>>
+    fun getTodaysRemindersWithClient(): Flow<List<ReminderWithClient>>
+    fun getTodaysFollowUpCount(): Flow<Int>
     suspend fun saveReminder(reminder: ReminderEntity): Long
     suspend fun deleteReminder(reminder: ReminderEntity)
     suspend fun setReminderCompletion(id: Long, completed: Boolean)

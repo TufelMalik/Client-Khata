@@ -17,3 +17,4 @@ fun NavGraphBuilder.rootNavGraph(
     clientDetailNavGraph(viewModel, navController)
     remindersNavGraph(viewModel, navController)
 }
+

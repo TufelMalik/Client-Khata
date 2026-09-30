@@ -1,6 +1,15 @@
 package com.techquantum.tqdkhata.modules.clients.components
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import com.techquantum.tqdkhata.utils.helpers.MediaUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -70,11 +79,33 @@ fun ClientCard(
         border = BorderStroke(1.dp, BrandSage.copy(alpha = 0.6f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Shop Image Cover
+            if (client.shopImagePath != null) {
+                val bitmap = produceState<Bitmap?>(initialValue = null, client.shopImagePath) {
+                    value = withContext(Dispatchers.IO) {
+                        val file = File(client.shopImagePath)
+                        if (file.exists()) MediaUtils.loadThumbnail(client.shopImagePath) else null
+                    }
+                }
+                bitmap.value?.let { bmp ->
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = "Shop Photo",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
             // Header: Name + City Tag
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -258,6 +289,7 @@ fun ClientCard(
                     }
                 }
             }
+        }
         }
     }
 }

@@ -17,6 +17,9 @@ import com.techquantum.tqdkhata.model.response.ImportResult
 import com.techquantum.tqdkhata.utils.helpers.JsonBackupUtils
 import com.techquantum.tqdkhata.utils.helpers.MediaUtils
 import com.techquantum.tqdkhata.utils.helpers.ReminderAlarmScheduler
+import com.techquantum.tqdkhata.utils.helpers.DateUtils
+import androidx.glance.appwidget.updateAll
+import com.techquantum.tqdkhata.widget.TQDKhataWidget
 import kotlinx.coroutines.flow.Flow
 import java.io.File
 
@@ -27,6 +30,14 @@ class ClientRepositoryImpl(
     private val database: AppDatabase,
     private val context: Context? = null
 ) : ClientRepository {
+
+    private suspend fun updateWidget() {
+        context?.let { ctx ->
+            try {
+                TQDKhataWidget().updateAll(ctx)
+            } catch (_: Throwable) {}
+        }
+    }
 
     override fun filterClients(
         query: String?,
@@ -51,12 +62,14 @@ class ClientRepositoryImpl(
         clientDao.getCountByStatus(status.name)
 
     override suspend fun saveClient(client: ClientEntity): Long {
-        return if (client.id == 0L) {
+        val id = if (client.id == 0L) {
             clientDao.insertClient(client)
         } else {
             clientDao.updateClient(client.copy(updatedAt = System.currentTimeMillis()))
             client.id
         }
+        updateWidget()
+        return id
     }
 
     override suspend fun deleteClient(client: ClientEntity) {
@@ -74,6 +87,7 @@ class ClientRepositoryImpl(
             }
         } catch (_: Exception) {}
         clientDao.deleteClient(client)
+        updateWidget()
     }
 
     override suspend fun deleteClientById(id: Long) {
@@ -91,6 +105,7 @@ class ClientRepositoryImpl(
             }
         } catch (_: Exception) {}
         clientDao.deleteClientById(id)
+        updateWidget()
     }
 
     // Reminders
@@ -102,6 +117,16 @@ class ClientRepositoryImpl(
 
     override fun getPendingRemindersWithClient(): Flow<List<ReminderWithClient>> =
         reminderDao.getPendingRemindersWithClient()
+
+    override fun getTodaysRemindersWithClient(): Flow<List<ReminderWithClient>> {
+        val endOfDay = DateUtils.getEndOfTodayMillis()
+        return reminderDao.getTodaysRemindersWithClient(endOfDay)
+    }
+
+    override fun getTodaysFollowUpCount(): Flow<Int> {
+        val endOfDay = DateUtils.getEndOfTodayMillis()
+        return reminderDao.getTodaysFollowUpCount(endOfDay)
+    }
 
     override suspend fun saveReminder(reminder: ReminderEntity): Long {
         val savedId = if (reminder.id == 0L) {
@@ -132,6 +157,7 @@ class ClientRepositoryImpl(
             }
         }
 
+        updateWidget()
         return savedId
     }
 
@@ -140,6 +166,7 @@ class ClientRepositoryImpl(
             ReminderAlarmScheduler.cancelReminder(ctx, reminder.id)
         }
         reminderDao.deleteReminder(reminder)
+        updateWidget()
     }
 
     override suspend fun setReminderCompletion(id: Long, completed: Boolean) {
@@ -163,6 +190,7 @@ class ClientRepositoryImpl(
                 }
             }
         }
+        updateWidget()
     }
 
     // Media & Resources
@@ -266,6 +294,7 @@ class ClientRepositoryImpl(
             }
         }
 
+        updateWidget()
         return result
     }
 

@@ -24,3 +24,8 @@ fun NavController.navigateToClientForm(clientId: Long? = null) {
 fun NavController.navigateToReminders() {
     navigate(RemindersRoute.ROUTE)
 }
+
+fun NavController.navigateToTodaysFollowups() {
+    navigate(RemindersRoute.ROUTE)
+}
+
